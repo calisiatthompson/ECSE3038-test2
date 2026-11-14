@@ -1,37 +1,105 @@
+# ECSE3038 Test 2 — Bathroom Fan Controller
 
-This directory is intended for project header files.
+## Project Overview
 
-A header file is a file containing C declarations and macro definitions
-to be shared between several project source files. You request the use of a
-header file in your project source file (C, C++, etc) located in `src` folder
-by including it, with the C preprocessing directive `#include'.
+This project is an IoT bathroom extractor fan controller that uses an ESP32 and a DHT22 sensor to monitor humidity. An LED represents the extractor fan.
 
-```src/main.c
+The ESP32 sends humidity readings to a FastAPI backend hosted on an Azure virtual machine. Readings and fan settings are stored in MongoDB Atlas. MQTT is used to communicate fan settings and connection status between the API and the ESP32.
 
-#include "header.h"
+## Repository Structure
 
-int main (void)
-{
- ...
-}
-```
+- `api/` — FastAPI backend and Python dependencies.
+- `board/` — ESP32 firmware, PlatformIO configuration and Wokwi simulation.
 
-Including a header file produces the same results as copying the header file
-into each source file that needs it. Such copying would be time-consuming
-and error-prone. With a header file, the related declarations appear
-in only one place. If they need to be changed, they can be changed in one
-place, and programs that include the header file will automatically use the
-new version when next recompiled. The header file eliminates the labor of
-finding and changing all the copies as well as the risk that a failure to
-find one copy will result in inconsistencies within a program.
+## How to Run the API
 
-In C, the convention is to give header files names that end with `.h'.
+1. Clone the repository.
+2. Navigate to the `api` directory.
+3. Create a Python virtual environment:
 
-Read more about using header files in official GCC documentation:
+   `python3 -m venv venv`
 
-* Include Syntax
-* Include Operation
-* Once-Only Headers
-* Computed Includes
+4. Activate the virtual environment:
 
-https://gcc.gnu.org/onlinedocs/cpp/Header-Files.html
+   `source venv/bin/activate`
+
+5. Install the required dependencies:
+
+   `python -m pip install -r requirements.txt`
+
+6. Create a `.env` file inside the `api` directory containing:
+
+   `MONGODB_URI=your_mongodb_connection_string`
+
+   `MQTT_NAME=calisia`
+
+7. Start the API:
+
+   `uvicorn app:app --host 127.0.0.1 --port 8000`
+
+The API runs on an Azure virtual machine, with nginx forwarding public HTTP requests to port 8000.
+
+Swagger documentation:
+
+http://iot-calisia.northcentralus.cloudapp.azure.com/docs
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | /fans | Register a fan and generate an API key |
+| GET | /fans | Retrieve all fans without API keys |
+| GET | /fans/{mac} | Retrieve a specific fan |
+| POST | /readings | Submit authenticated humidity readings |
+| GET | /readings | Retrieve readings with optional MAC and limit filters |
+| PUT | /fans/{mac}/settings | Create or update fan settings and publish them through MQTT |
+| DELETE | /fans/{mac} | Delete a fan using its own API key |
+
+## How to Run the Board
+
+1. Open the `board` folder in VS Code.
+2. Ensure the PlatformIO and Wokwi extensions are installed.
+3. Create `include/secrets.h` containing:
+
+   `#define DEVICE_KEY ""`
+
+4. Build the PlatformIO project.
+5. Start the Wokwi simulator.
+6. Copy the ESP32 MAC address displayed in the Serial Monitor.
+7. Register the ESP32 using `POST /fans` with its MAC address and room name.
+8. Copy the generated API key into `include/secrets.h`.
+9. Rebuild the firmware and restart the simulation.
+
+The DHT22 is connected to GPIO 15, and the fan LED is connected to GPIO 2.
+
+The ESP32 sends humidity readings to the API every 10 seconds using the X-API-Key header.
+
+## Fan Operating Modes
+
+- **auto:** The fan turns on when the humidity exceeds the configured maximum humidity and turns off otherwise.
+- **on:** The fan remains on regardless of humidity.
+- **off:** The fan remains off regardless of humidity.
+
+The fan remains off until valid settings are received. Changes to fan settings are applied immediately.
+
+## MQTT Communication
+
+Broker: `135.232.203.144:1883`
+
+| Topic | Description |
+|---|---|
+| ecse3038/calisia/fan/settings | Receives fan mode and maximum humidity as JSON |
+| ecse3038/calisia/fan/state | Publishes on or off when the fan changes state |
+| ecse3038/calisia/status | Publishes online or offline connection status |
+
+All three topics use retained messages.
+
+The ESP32 automatically reconnects to the MQTT broker if the connection drops. A Last Will message publishes offline when the board disconnects unexpectedly.
+
+Invalid JSON, missing fields and invalid fan modes are rejected without changing the previous valid settings.
+
+## Security
+
+API keys are randomly generated and used to authenticate humidity readings and fan deletion requests.
+
+The `.env` and `secrets.h` files are excluded from GitHub using `.gitignore`. Virtual environments and PlatformIO build output are also excluded.
